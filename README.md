@@ -1,3 +1,12 @@
+# Preliminary Run
+
+![](ankara-01.webp)
+![](ankara-02.webp)
+![](ankara-03.webp)
+![](ankara-04.webp)
+
+Files are in output/comfy
+
 # Stable Diffusion WebUI Docker
 
 Run Stable Diffusion on your machine with a nice UI without any hassle!
