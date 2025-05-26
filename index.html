@@ -3,22 +3,95 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Image Rater</title>
+  <title>Beneath a Steel Sky</title>
   <style>
-    body { font-family: sans-serif; margin: 0; padding: 1rem; background: #f0f0f0; }
-    h2 { margin-top: 2rem; }
-    .category { margin-bottom: 3rem; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; }
-    .card { background: #fff; padding: 0.5rem; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-    img { width: 100%; cursor: crosshair; }
-    select, textarea { width: 100%; margin-top: 0.5rem; }
-    button { margin-top: 0.5rem; }
+    body { font-family: sans-serif; max-width: 900px; margin: auto; padding: 1em; background: #f0f0f0; }
+    h1 { text-align: center; }
+    .top-controls {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin: 1em 0 2em 0;
+    }
+    .top-controls label {
+      font-size: 1em;
+      margin-left: 0.4em;
+      user-select: none;
+      cursor: pointer;
+    }
+    .image-block { margin-bottom: 2em; background: #fff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); padding: 1em; }
+    img { width: 100%; max-width: 100%; border-radius: 8px; }
+    .summary { margin: 0.5em 0; }
+    .comment-box { margin-top: 1em; }
+    textarea { width: 100%; min-height: 60px; border-radius: 4px; border: 1px solid #ccc; padding: 0.5em; }
+    button { margin-top: 0.5em; border-radius: 4px; border: none; background: #007bff; color: #fff; padding: 0.5em 1em; cursor: pointer; }
+    .toggle-comments { cursor: pointer; color: #007bff; text-decoration: underline; margin-top: 0.5em; display: none; }
+    .comment-section { display: none; margin-top: 0.5em; background: #f9f9f9; border-radius: 4px; padding: 0.5em; }
+    .comment { margin-bottom: 0.5em; padding-bottom: 0.5em; border-bottom: 1px solid #eee; }
+    .comment:last-child { border-bottom: none; }
+    .comment .timestamp { color: #888; font-size: 0.85em; }
+    .pagination { margin: 2em 0; display: flex; justify-content: space-between; align-items: center; }
+    .pagination span { flex: 1; text-align: center; color: #444; font-size: 1.05em; }
+    .disclaimer {
+      margin: 3em auto 1em auto;
+      padding: 1em;
+      background: #fff8dc;
+      color: #555;
+      border-radius: 6px;
+      border: 1px solid #ffe4a0;
+      max-width: 700px;
+      font-size: 1em;
+      text-align: center;
+    }
+    .edit-links {
+      text-align: center;
+      margin: 2em 0 1em 0;
+      font-size: 1.05em;
+    }
+    .edit-links a {
+      color: #007bff;
+      text-decoration: underline;
+      margin: 0 1em;
+      display: inline-block;
+    }
+    @media (max-width: 600px) {
+      .image-block { padding: 0.5em; }
+      .disclaimer { font-size: 0.95em; }
+    }
+    .summary ul, .summary ol { margin: 0.5em 0 0.5em 2em; }
+    .summary li { margin-bottom: 0.2em; }
+    .hide-comments .comment-box,
+    .hide-comments .toggle-comments {
+      display: none !important;
+    }
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
+  <h1>Beneath a Steel Sky</h1>
+  <div class="top-controls">
+    <input type="checkbox" id="hide-comments-toggle" />
+    <label for="hide-comments-toggle">Hide comment fields</label>
+  </div>
+  <div id="image-container"></div>
+  <div class="pagination">
+    <button id="prev">Previous</button>
+    <span id="page-info"></span>
+    <button id="next">Next</button>
+  </div>
 
-  <h1>Image Annotator & Rater</h1>
-  <div id="categories"></div>
+  <div class="disclaimer">
+    <strong>Note:</strong> These images are for test purposes only. We apologize for any blurriness—higher resolution images may be available at a future date.
+  </div>
+  <div class="edit-links">
+    <a href="https://github.com/standardgalactic/stable-diffusion/blob/master/index.html" target="_blank" rel="noopener">
+      Edit this page on GitHub
+    </a>
+    |
+    <a href="http://standardgalactic.github.io/stable-diffusion/image-rater.html" target="_blank" rel="noopener">
+      Visit the old version
+    </a>
+  </div>
 
   <script type="module">
     import { createClient } from 'https://esm.sh/@supabase/supabase-js'
@@ -27,72 +100,224 @@
     const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF2dGVrdnZxd3F2eGtpcGFwem9uIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc4NTgxMzksImV4cCI6MjA2MzQzNDEzOX0.NqO98sAJpA_KB1j5EVcdddF3sxEzeO2rwjL41oiYG0I'
     const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
 
-    const ratings = ["Mind-blowing", "Amazing", "Great", "Average", "Ugly", "Please delete"]
-    const categoryMap = {
-      'ComfyUI': [],
-      'Political Art': [],
-      'Steel-sky': []
+    marked.setOptions({ breaks: true });
+
+    const IMAGES_PER_PAGE = 10;
+    let currentPage = 0;
+    let data = [];
+
+    // Track comment display state
+    let hideComments = false;
+
+    // --- PAGE NUMBER IN URL SUPPORT START ---
+    function getPageFromUrl() {
+      const params = new URLSearchParams(window.location.search);
+      const page = parseInt(params.get('page'), 10);
+      return (isNaN(page) || page < 1) ? 1 : page;
+    }
+    function setPageInUrl(pageNum) {
+      const url = new URL(window.location);
+      url.searchParams.set('page', pageNum + 1);
+      window.history.replaceState({}, '', url);
+    }
+    // --- PAGE NUMBER IN URL SUPPORT END ---
+
+    async function loadJSON() {
+      const res = await fetch('image_descriptions.json');
+      data = await res.json();
+      currentPage = getPageFromUrl() - 1; // zero-based
+      await renderPage();
     }
 
-    const filenames = await fetch('output/comfy/filenames.json').then(r => r.json())
+    function fixSummaryFormat(md) {
+      md = md.replace(/([^\n])(\d+\.)/g, '$1\n$2');
+      md = md.replace(/([^\n])(-\s)/g, '$1\n$2');
+      md = md.split('\n').filter(line => !(line.trim().length >= 2 && /^-+$/.test(line.trim()))).join('\n');
+      md = md.replace(/\n{3,}/g, '\n\n');
+      return md;
+    }
 
-    // Split filenames into categories
-    filenames.forEach(name => {
-      if (name.startsWith('ComfyUI_')) categoryMap['ComfyUI'].push(name)
-      else if (name.startsWith('Political Art_')) categoryMap['Political Art'].push(name)
-      else if (name.startsWith('Steel-sky_')) categoryMap['Steel-sky'].push(name)
-    })
+    async function renderPage() {
+      const container = document.getElementById('image-container');
+      container.innerHTML = '';
+      const start = currentPage * IMAGES_PER_PAGE;
+      const end = start + IMAGES_PER_PAGE;
+      const pageImages = data.slice(start, end);
 
-    const container = document.getElementById('categories')
+      document.getElementById('prev').style.visibility = (currentPage === 0) ? 'hidden' : 'visible';
 
-    for (const [category, files] of Object.entries(categoryMap)) {
-      const section = document.createElement('div')
-      section.className = 'category'
-      section.innerHTML = `<h2>${category}</h2><div class="grid"></div>`
-      const grid = section.querySelector('.grid')
+      const pageInfo = document.getElementById('page-info');
+      const totalPages = Math.ceil(data.length / IMAGES_PER_PAGE);
+      pageInfo.textContent = `Page ${currentPage + 1} of ${totalPages}`;
 
-      files.slice(0, 100).forEach(filename => {
-        const card = document.createElement('div')
-        card.className = 'card'
-        card.innerHTML = `
-          <img src="output/comfy/${filename}" alt="${filename}" data-filename="${filename}">
-          <select>
-            ${ratings.map(r => `<option value="${r}">${r}</option>`).join('')}
-          </select>
-          <textarea placeholder="Comment..."></textarea>
-          <button>Submit</button>
-        `
+      // Set comment hide/show state on container for CSS
+      if (hideComments) {
+        container.classList.add('hide-comments');
+      } else {
+        container.classList.remove('hide-comments');
+      }
 
-        const img = card.querySelector('img')
-        const select = card.querySelector('select')
-        const textarea = card.querySelector('textarea')
-        const button = card.querySelector('button')
-
-        img.addEventListener('click', e => {
-          const rect = e.target.getBoundingClientRect()
-          const x = ((e.clientX - rect.left) / rect.width).toFixed(3)
-          const y = ((e.clientY - rect.top) / rect.height).toFixed(3)
-          alert(`Clicked at (${x}, ${y}) in image ${filename}`)
-          // Optional: save coordinates via Supabase
-        })
+      for (const entry of pageImages) {
+        const block = document.createElement('div');
+        block.className = 'image-block';
+        const summaryHTML = marked.parse(fixSummaryFormat(entry.summary || ''));
+        block.innerHTML = `
+          <img src="output/comfy/${entry.filename}" alt="image">
+          <div class="summary">${summaryHTML}</div>
+          <div class="comment-box">
+            <textarea placeholder="Add your comment..."></textarea>
+            <button>Submit</button>
+            <p class="toggle-comments" style="display:none;">View comments</p>
+            <div class="comment-section"></div>
+          </div>
+        `;
+        const textarea = block.querySelector('textarea');
+        const button = block.querySelector('button');
+        const toggleCommentsBtn = block.querySelector('.toggle-comments');
+        const commentSection = block.querySelector('.comment-section');
 
         button.addEventListener('click', async () => {
-          const { data, error } = await supabase.from('image_feedback').insert([{
-            filename,
-            rating: select.value,
-            comment: textarea.value,
+          const comment = textarea.value.trim();
+          const offensiveWords = ['badword1', 'badword2'];
+          const hasOffensive = offensiveWords.some(word => comment.toLowerCase().includes(word));
+          if (!comment) {
+            alert('Please enter a comment.');
+            return;
+          }
+          if (hasOffensive) {
+            alert('Comment contains inappropriate content.');
+            return;
+          }
+          button.disabled = true;
+          button.textContent = "Submitting...";
+          const { error } = await supabase.from('image_feedback').insert([{
+            filename: entry.filename,
+            comment,
             timestamp: new Date().toISOString()
-          }])
-          if (error) alert("❌ Error submitting: " + error.message)
-          else alert("✅ Feedback submitted!")
-        })
+          }]);
+          button.disabled = false;
+          button.textContent = "Submit";
+          if (error) {
+            alert("❌ Error submitting: " + error.message);
+          } else {
+            alert("✅ Comment submitted!");
+            textarea.value = '';
+            toggleCommentsBtn.style.display = 'block';
+            if (commentSection.style.display === 'block') {
+              await loadComments(entry.filename, commentSection, toggleCommentsBtn);
+            }
+          }
+        });
 
-        grid.appendChild(card)
-      })
+        toggleCommentsBtn.addEventListener('click', async () => {
+          if (commentSection.style.display === 'block') {
+            commentSection.style.display = 'none';
+            toggleCommentsBtn.textContent = 'View comments';
+          } else {
+            await loadComments(entry.filename, commentSection, toggleCommentsBtn);
+          }
+        });
 
-      container.appendChild(section)
+        try {
+          const { count, error } = await supabase
+            .from('image_feedback')
+            .select('id', { count: 'exact', head: true })
+            .eq('filename', entry.filename);
+          if (count > 0) {
+            toggleCommentsBtn.style.display = 'block';
+          }
+        } catch (e) {
+          toggleCommentsBtn.style.display = 'none';
+        }
+
+        container.appendChild(block);
+      }
     }
+
+    async function loadComments(filename, section, toggleBtn) {
+      section.innerHTML = 'Loading comments...';
+      section.style.display = 'block';
+      toggleBtn.textContent = 'Hide comments';
+      const { data: comments, error } = await supabase
+        .from('image_feedback')
+        .select('comment,timestamp')
+        .eq('filename', filename)
+        .order('timestamp', { ascending: false })
+        .limit(30);
+      if (error) {
+        section.innerHTML = '<div class="comment">Error loading comments.</div>';
+        return;
+      }
+      if (!comments || comments.length === 0) {
+        section.innerHTML = '<div class="comment">No comments yet.</div>';
+        return;
+      }
+      section.innerHTML = comments.map(c =>
+        `<div class="comment">
+          <div>${escapeHTML(c.comment)}</div>
+          <div class="timestamp">${formatDate(c.timestamp)}</div>
+        </div>`).join('');
+    }
+
+    function escapeHTML(str) {
+      return str.replace(/[&<>"']/g, function(m) {
+        return ({
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          '"': '&quot;',
+          "'": '&#39;'
+        })[m];
+      });
+    }
+
+    function formatDate(ts) {
+      if (!ts) return '';
+      const d = new Date(ts);
+      return d.toLocaleString();
+    }
+
+    document.getElementById('prev').onclick = async () => {
+      if (currentPage > 0) {
+        currentPage--;
+        setPageInUrl(currentPage);
+        await renderPage();
+      }
+    };
+    document.getElementById('next').onclick = async () => {
+      if ((currentPage + 1) * IMAGES_PER_PAGE < data.length) {
+        currentPage++;
+        setPageInUrl(currentPage);
+        await renderPage();
+      }
+    };
+
+    // Keyboard navigation: left/right arrows
+    document.addEventListener('keydown', async (e) => {
+      if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
+      if (e.key === "ArrowLeft") {
+        if (currentPage > 0) {
+          currentPage--;
+          setPageInUrl(currentPage);
+          await renderPage();
+        }
+      } else if (e.key === "ArrowRight") {
+        if ((currentPage + 1) * IMAGES_PER_PAGE < data.length) {
+          currentPage++;
+          setPageInUrl(currentPage);
+          await renderPage();
+        }
+      }
+    });
+
+    // Hide comments toggle
+    const hideCommentsToggle = document.getElementById('hide-comments-toggle');
+    hideCommentsToggle.addEventListener('change', () => {
+      hideComments = hideCommentsToggle.checked;
+      renderPage();
+    });
+
+    loadJSON();
   </script>
 </body>
 </html>
-
